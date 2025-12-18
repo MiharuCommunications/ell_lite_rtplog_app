@@ -15,8 +15,8 @@ typedef struct __attribute__((__packed__)) {
     int hour;
     int minute;
     int second;
-    double dus;
-    double jus;
+    double dms;
+    double jms;
     int loss;
     int duplicate;
 } RTPStat;
@@ -40,7 +40,7 @@ struct tm parse_filename_to_tm(const char *filename) {
 
 int main(int argc, char *argv[]) {
     char *log_dir = (argc == 1) ? "rtp-log" : argv[1];
-    uint32_t rate = (argc == 2) ? 1 : atoi(argv[2]);
+    uint32_t plot_rate = (argc <= 2) ? 1 : atoi(argv[2]);
     DIR *dir;
     struct dirent **entry;
     uint64_t packet_count = 0;
@@ -52,11 +52,11 @@ int main(int argc, char *argv[]) {
     int loss = 0;
     int duplicate = 0;
 
-    if(rate == 0 || rate > 1000) {
+    if(plot_rate == 0 || plot_rate > 1000) {
         fprintf(stderr, "Invalid DumpRate : %s (range 1 - 1000)\n", argv[2]);
         return 1;
     }
-    rate = 1000 / rate;
+    plot_rate = 1000 / plot_rate;
 
     dir = opendir(log_dir);
     if (!dir) {
@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
         if (strstr(entry[i]->d_name, ".bin")) {
             char filepath[512];
             snprintf(filepath, sizeof(filepath), "%s/%s", log_dir, entry[i]->d_name);
-            printf("Processing %s\n", filepath);
+            //printf("Processing %s\n", filepath);
 
             FILE *fp = fopen(filepath, "rb");
             if (!fp) continue;
@@ -121,7 +121,7 @@ int main(int argc, char *argv[]) {
 
                 ofs += DSIZE;
 
-                if (packet_count > 0) {
+                if (packet_count > 1000) {
                     if ( rtp_sn == rtp_sn_prev ) {
                         // Duplicate Packet
                         duplicate++;
@@ -130,17 +130,19 @@ int main(int argc, char *argv[]) {
                              (rtp_sn == 0 && rtp_sn_prev != 65535)) {
                         // Packet Loss
                         loss++;
-                        //if(rtp_sn_prev > rtp_sn) {
-                        //    printf("packet loss (%d,%d)\n", rtp_sn, rtp_sn_prev);
+                        if(rtp_sn_prev > rtp_sn) {
+                            printf("packet loss (%d,%d)\n", rtp_sn, rtp_sn_prev);
                         //    printf("%ld:snd:%f(%d,%d), %f\n", packet_count, snd_ts, snd_sec, snd_nsec, snd_ts_prev);
-                        //}
+                        }
+                        if(tm_info.tm_mday == 26 && tm_info.tm_hour == 19 && rtp_sn > rtp_sn_prev)
+                            printf("packet loss %d sn = %d sn_prev = %d (2025-11-%d:%d:%d:%d) \n", (rtp_sn - rtp_sn_prev), rtp_sn, rtp_sn_prev, tm_info.tm_mday, tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec);
                     }
                     else {
                         // Jitter Calculation
-                        if(rcv_ts < rcv_ts_prev) {
-                            if((uint32_t)rcv_ts_prev == (uint32_t)rcv_ts) rcv_ts = rcv_ts + 1.0;
-                        }
                         if(snd_ts < snd_ts_prev) {
+                            // FIXME ELL側アプリ修正が必要
+                            // 送信カウンタ読み出し時に秒繰り上がりを検知する必要あり
+                            // 暫定でPC側アプリで同等処理
                             if((uint32_t)snd_ts_prev == (uint32_t)snd_ts) snd_ts = snd_ts + 1.0;
                         }
 
@@ -149,12 +151,11 @@ int main(int argc, char *argv[]) {
                         //    printf("(%d,%d)%ld:snd:%f(%d,%d), %f\n", rtp_sn, rtp_sn_prev, packet_count, snd_ts, snd_sec, snd_nsec, snd_ts_prev);
                         //}
 
+                        // for DEBUG
                         if(rcv_ts < rcv_ts_prev) {
                             printf("(%d,%d)%ld:rcv:%f(%d,%d), %f\n", rtp_sn, rtp_sn_prev, packet_count, rcv_ts, rcv_sec, rcv_nsec, rcv_ts_prev);
-                            printf("(%d,%d)%ld:snd:%f(%d,%d), %f\n", rtp_sn, rtp_sn_prev, packet_count, snd_ts, snd_sec, snd_nsec, snd_ts_prev);
                         }
                         if(snd_ts < snd_ts_prev) {
-                            printf("(%d,%d)%ld:rcv:%f(%d,%d), %f\n", rtp_sn, rtp_sn_prev, packet_count, rcv_ts, rcv_sec, rcv_nsec, rcv_ts_prev);
                             printf("(%d,%d)%ld:snd:%f(%d,%d), %f\n", rtp_sn, rtp_sn_prev, packet_count, snd_ts, snd_sec, snd_nsec, snd_ts_prev);
                         }
 
@@ -166,10 +167,13 @@ int main(int argc, char *argv[]) {
                         j = j_prev + (d_prev - j_prev) / 16;
                         if (d > d_max) d_max = d;
                         if (j > j_max) j_max = j;
+
+                        if(d * 1000 > 100)
+                            printf("(%d,%d)%ld:d:%f ms\n", rtp_sn, rtp_sn_prev, packet_count, d * 1000 );
                     }
                 }
 
-                if (packet_count % rate == 0 && packet_count > 0) {
+                if (packet_count % plot_rate == 0 && packet_count > 0) {
                     RTPStat stat;
                     stat.year = tm_info.tm_year + 1900;
                     stat.month = tm_info.tm_mon + 1;
@@ -177,12 +181,18 @@ int main(int argc, char *argv[]) {
                     stat.hour = tm_info.tm_hour;
                     stat.minute = tm_info.tm_min;
                     stat.second = tm_info.tm_sec;
-                    stat.dus = d_max * 1e6;
-                    stat.jus = j_max * 1e6;
+                    stat.dms = d_max * 1e3;
+                    stat.jms = j_max * 1e3;
                     stat.loss = loss;
                     stat.duplicate = duplicate;
 
                     fwrite(&stat, sizeof(RTPStat), 1, dump_fp);
+
+                    //if(stat.dms > 100)
+                    //    printf("[Jitter] %d ms (%d%02d%02d_%02d:%02d:%02d)\n", (int)stat.dms, stat.year, stat.month, stat.day, stat.hour, stat.minute, stat.second);
+
+                    //if(stat.loss > 20)
+                    //    printf("[Loss] %d packets/sec (%d%02d%02d_%02d:%02d:%02d)\n", (int)stat.loss, stat.year, stat.month, stat.day, stat.hour, stat.minute, stat.second);
 
                     d_max = 0;
                     j_max = 0;
@@ -210,7 +220,7 @@ int main(int argc, char *argv[]) {
             free(data);
         }
         free(entry[i]);
-        printf("%ld Packets Proceeded\n", packet_count);
+        //printf("%ld Packets Proceeded\n", packet_count);
     }
     free(entry);
 
@@ -220,10 +230,10 @@ int main(int argc, char *argv[]) {
 
     // Pythonスクリプトをsystemで起動
     printf("Launching Python Plot...\n");
-    int ret = system("python3 plot_rtp.py");
-    if (ret != 0) {
-        fprintf(stderr, "Python script failed with code %d\n", ret);
-    }
+    //int ret = system("python3 plot_rtp.py");
+    //if (ret != 0) {
+    //    fprintf(stderr, "Python script failed with code %d\n", ret);
+    //}
 
     return 0;
 }
