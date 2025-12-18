@@ -28,24 +28,37 @@ if 0 == len(logs):
 register_plotly_resampler(mode='auto')
 
 # init 
-rtp_sn = {}
-snd_ts = {}
-rcv_ts = {}
+rtp_sn = 0 
+rtp_sn_prev = 0 
+
+snd_ts = 0
+snd_ts_prev = 0
+
+rcv_ts = 0
+rcv_ts_prev = 0
+
+pkt_time_t = 0
 pkt_time = {}
-d = {}
-j = {}
+
+d = 0
+d_prev = 0
+d_max = 0
+
+j = 0
+j_prev = 0
+j_max = 0
+
 dus = {}
 jus = {}
 loss = {}
 dsize = 18
 
-d[0] = 0
-j[0] = 0
 dus[0] = 0
 jus[0] = 0
 loss[0] = 0
 
 i = 0
+i_sec = 0
 total_i = 0
 loss_t = 0
 
@@ -62,7 +75,7 @@ for log in logs:
 
     # UTC to JST(+9 hours)
     date = date + datetime.timedelta(hours=9)
-    pkt_time[total_i] = date
+    pkt_time_t = date
 
     with open(log, 'rb') as f:
         data = f.read()
@@ -72,41 +85,51 @@ for log in logs:
         while ofs+(dsize-1) < file_size:
             i = total_i + (ofs / dsize)
     
+            rtp_sn_prev = rtp_sn
             rtp_sn_t    = struct.unpack_from('<H', data, ofs)
-            rtp_sn[i]   = rtp_sn_t[0]
+            rtp_sn      = rtp_sn_t[0]
     
+            snd_ts_prev = snd_ts
             snd_ts_sec  = struct.unpack_from('<L', data, ofs+2)
             snd_ts_nsec = struct.unpack_from('<L', data, ofs+6)
-            snd_ts[i]   = snd_ts_sec[0] + snd_ts_nsec[0] * pow(10, -9)
+            snd_ts      = snd_ts_sec[0] + snd_ts_nsec[0] * pow(10, -9)
     
+            rcv_ts_prev = rcv_ts
             rcv_ts_sec  = struct.unpack_from('<L', data, ofs+10)
             rcv_ts_nsec = struct.unpack_from('<L', data, ofs+14)
-            rcv_ts[i] = rcv_ts_sec[0] + rcv_ts_nsec[0] * pow(10, -9)
-            #print("%d:%f    %f" %(rtp_sn[i], snd_ts[i], rcv_ts[i]))
+            rcv_ts    = rcv_ts_sec[0] + rcv_ts_nsec[0] * pow(10, -9)
             ofs = ofs + dsize
     
-            if i > 0:
-                d[i] = abs((rcv_ts[i] - rcv_ts[i-1]) - (snd_ts[i] - snd_ts[i-1]))
-                j[i] = j[i-1] + (d[i-1] - j[i-1]) / 16
-                #j[i] = j[i-1] + (d[i-1] - j[i-1])
-                #print(j[i])
-                jus[i] = j[i]*1000*1000
-                dus[i] = d[i]*1000*1000
+            d_prev = d
+            j_prev = j
 
+            if i > 0:
                 # Packet Loss Analysis
-                if (rtp_sn[i] > 0 and rtp_sn[i] - rtp_sn[i-1] != 1) or (rtp_sn[i] == 0 and rtp_sn[i-1] != 65535) :
+                if (rtp_sn > 0 and rtp_sn - rtp_sn_prev != 1) or (rtp_sn == 0 and rtp_sn_prev != 65535) :
                     loss_t = loss_t + 1
                 else:
-                    loss_t = loss_t
+                    # Jitter Analysis
+                    d = abs((rcv_ts - rcv_ts_prev) - (snd_ts - snd_ts_prev))
+                    j = j_prev + (d_prev - j_prev) / 16
+                    #j = j_prev + (d_prev - j_prev)
+                    #print(j)
+                    if (d_max < d) :
+                        d_max = d
+                    if (j_max < j) :
+                        j_max = j
 
                 if i%1000 == 0:
-                    loss[i] = loss_t
+                    pkt_time[i_sec] = pkt_time_t
+                    dus[i_sec] = d_max * 1000 * 1000
+                    jus[i_sec] = j_max * 1000 * 1000
+                    loss[i_sec] = loss_t
+                    i_sec = i_sec + 1
+                    d_max = 0
+                    j_max = 0
                     loss_t = 0
-                else:
-                    loss[i] = 0
 
             if i > total_i:
-                pkt_time[i] = pkt_time[i-1] + pkt_itv
+                pkt_time_t = pkt_time_t + pkt_itv
 
     total_i = i + 1
     print("%d Packets Proceeded" %(total_i) )
