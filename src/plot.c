@@ -230,10 +230,10 @@ int main(int argc, char *argv[]) {
 
     // Pythonスクリプトをsystemで起動
     printf("Launching Python Plot...\n");
-    //int ret = system("python3 plot_rtp.py");
-    //if (ret != 0) {
-    //    fprintf(stderr, "Python script failed with code %d\n", ret);
-    //}
+    int ret = system("python3 plot_rtp.py");
+    if (ret != 0) {
+        fprintf(stderr, "Python script failed with code %d\n", ret);
+    }
 
     return 0;
 }
