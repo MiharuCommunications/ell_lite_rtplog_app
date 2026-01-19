@@ -8,13 +8,14 @@ from threading import Timer
 
 register_plotly_resampler(mode='auto')
 
-record_format = "<6idd4i"  # packed: 6 ints, 2 doubles, 4 ints
+record_format = "<6idd5i"  # packed: 6 ints, 2 doubles, 4 ints
 record_size = struct.calcsize(record_format)
 
 pkt_time = {}
 dms = {}
 jms = {}
 loss = {}
+loss_burst = {}
 duplicate = {}
 reorder_count = {}
 reorder_length = {}
@@ -27,7 +28,7 @@ with open(filename, "rb") as f:
         data = f.read(record_size)
         if not data:
             break
-        year, month, day, hour, minute, second, d_max_ms, j_max_ms, loss_t, duplicate_t, reorder_count_t, reorder_length_t = struct.unpack(record_format, data)
+        year, month, day, hour, minute, second, d_max_ms, j_max_ms, loss_t, loss_burst_t, duplicate_t, reorder_count_t, reorder_length_t = struct.unpack(record_format, data)
         #print(year)
         #print(month)
         #print(day)
@@ -56,6 +57,7 @@ with open(filename, "rb") as f:
         dms[i_sec] = d_max_ms
         jms[i_sec] = j_max_ms
         loss[i_sec] = loss_t
+        loss_burst[i_sec] = loss_burst_t
         duplicate[i_sec] = duplicate_t
         reorder_count[i_sec] = reorder_count_t
         reorder_length[i_sec] = reorder_length_t
@@ -63,17 +65,18 @@ with open(filename, "rb") as f:
 
 print("Drawing Graph")
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                    subplot_titles=["Jitter", "Packet Loss/Duplicate/Reordering"], vertical_spacing=0.03)
+                    subplot_titles=["Jitter (ms)", "Loss/Duplicate/Reordering (pkt/sec)"], vertical_spacing=0.03)
 
 fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(dms.values()), name="Jitter(moment)", mode="lines"), row=1, col=1)
 fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(jms.values()), name="Jitter(average)", mode="lines"), row=1, col=1)
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(loss.values()), name="Packet loss", mode="lines"), row=2, col=1)
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(duplicate.values()), name="Pakcket duplicate", mode="lines"), row=2, col=1)
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(reorder_count.values()), name="Pakcket reordering count", mode="lines"), row=2, col=1)
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(reorder_length.values()), name="Pakcket reordering length", mode="lines"), row=2, col=1)
+fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(loss.values()), name="Loss(total)", mode="lines"), row=2, col=1)
+fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(loss_burst.values()), name="Loss(burst)", mode="lines"), row=2, col=1)
+fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(duplicate.values()), name="Duplicate", mode="lines"), row=2, col=1)
+fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(reorder_count.values()), name="Reordering(count)", mode="lines"), row=2, col=1)
+fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(reorder_length.values()), name="Reordering(length)", mode="lines"), row=2, col=1)
 
-fig.update_yaxes(title="Jitter(ms)", row=1)
-fig.update_yaxes(title="Packet Loss/Reordering/Duplicate (Packets/Sec)", row=2)
+#fig.update_yaxes(title="Jitter(ms)", row=1)
+#fig.update_yaxes(title="Packets(pkt/sec)", row=2)
 #fig.update_xaxes(rangeslider_visible=True)
 
 fig.write_html("rtp_plot.html")

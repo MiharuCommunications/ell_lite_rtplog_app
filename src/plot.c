@@ -36,6 +36,7 @@ typedef struct __attribute__((__packed__)) {
     double dms;
     double jms;
     int loss;
+    int loss_burst;
     int duplicate;
     int reorder_count;
     int reorder_length;
@@ -71,6 +72,7 @@ int main(int argc, char *argv[]) {
     double d = 0, j = 0, d_prev = 0, j_prev = 0;
     double d_max = 0, j_max = 0;
     int loss = 0;
+    int loss_burst_max = 0;
     int reorder = 0;
     int reorder_count = 0;
     int reorder_length = 0;
@@ -210,13 +212,18 @@ int main(int argc, char *argv[]) {
                                 loss_length = rtp_sn - rtp_sn_prev - 1;
                             }
                             loss += loss_length;
+
+                            if(loss_burst_max < loss_length){
+                                loss_burst_max = loss_length;
+                            }
+
                             if(loss_length > 1) {
                                 dbg_printf("[%s]:Burst Packet Loss:%d(%d,%d) \n", logtime, loss_length, rtp_sn, rtp_sn_prev);
                             }
                             else {
                                 dbg_printf("[%s]:Packet Loss:%d(%d,%d) \n", logtime, loss_length, rtp_sn, rtp_sn_prev);
                             }
-                            csvdump("Packet Loss", loss_length, "Packets");
+                            csvdump("Loss", loss_length, "Packets");
                         }
                     }
                     else {
@@ -264,24 +271,29 @@ int main(int argc, char *argv[]) {
                     stat.dms = d_max * 1e3;
                     stat.jms = j_max * 1e3;
                     stat.loss = loss;
+                    stat.loss_burst = loss_burst_max;
                     stat.duplicate = duplicate;
                     stat.reorder_count = reorder_count;
                     stat.reorder_length = reorder_length_max;
 
                     fwrite(&stat, sizeof(RTPStat), 1, dump_fp);
 
-                    if(stat.dms > 100)
+                    if(stat.dms > 100){
                         fprintf(csv_fp_summary, "%s,Jitter,%.3f,ms\n", logtime, stat.dms);
+                    }
 
-                    if(stat.loss > 0)
-                        fprintf(csv_fp_summary, "%s,PacketLoss,%d,pkt/sec\n", logtime, stat.loss);
+                    if(stat.loss > 0){
+                        fprintf(csv_fp_summary, "%s,Loss(total),%d,pkt/sec\n", logtime, stat.loss);
+                        fprintf(csv_fp_summary, "%s,Loss(burst),%d,pkt\n", logtime, stat.loss_burst);
+                    }
 
-                    if(stat.duplicate)
+                    if(stat.duplicate){
                         fprintf(csv_fp_summary, "%s,Duplicate,%d,pkt/sec\n", logtime, stat.duplicate);
+                    }
 
                     if(stat.reorder_count > 0){
-                        fprintf(csv_fp_summary, "%s,ReorderingCount,%d,pkt/sec\n", logtime, stat.reorder_count);
-                        fprintf(csv_fp_summary, "%s,ReorderingLength,%d,pkt/sec\n", logtime, stat.reorder_length);
+                        fprintf(csv_fp_summary, "%s,Reordering(count),%d,pkt/sec\n", logtime, stat.reorder_count);
+                        fprintf(csv_fp_summary, "%s,Reordering(length),%d,pkt/sec\n", logtime, stat.reorder_length);
                     }
                     //fprintf(csv_fp_summary, "%s,%.3f,%.3f,%d,%d,%d,%d\n", logtime, stat.dms, stat.jms, stat.loss, stat.duplicate, stat.reorder_count, stat.reorder_length);
 
@@ -294,6 +306,7 @@ int main(int argc, char *argv[]) {
                     d_max = 0;
                     j_max = 0;
                     loss = 0;
+                    loss_burst_max = 0;
                     duplicate = 0;
                     reorder_count = 0;
                     reorder_length_max = 0;
