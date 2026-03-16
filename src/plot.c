@@ -15,6 +15,7 @@
 #define FMT_CSV "Time,Category,Value,Unit,SeqNum,SeqNumPrev,SendTimeStampDiff(ms),RecvTimeStampDiff(ms)\n"
 #define FMT_CSV_SUMMARY "Time,Category,Value,Unit\n"
 //#define FMT_CSV_SUMMARY "Time,JitterMoment(ms),JitterAverage(ms),PacketLoss(pkt/sec),Duplicate(pkt/sec),Reordering(pkt/sec),ReorderingLength(pkt)\n"
+//#define DEBUG
 
 #ifdef DEBUG
     #define dbg_printf(...) printf(__VA_ARGS__)
@@ -175,66 +176,58 @@ int main(int argc, char *argv[]) {
 
                 ofs += DSIZE;
 
-                if (packet_count > 1000) {
+                if (packet_count > 1) {
                     if (rtp_sn == rtp_sn_prev) {
                         // Duplicate Packet
                         duplicate++;
                         dbg_printf("[%s]:Duplicate (%d,%d) snd_ts(%f, %f)\n", logtime, rtp_sn, rtp_sn_prev, snd_ts, snd_ts_prev);
                         csvdump("Duplicate", 1, "Packets");
                     }
-                    else if ((rtp_sn > 0 && rtp_sn - rtp_sn_prev != 1) ||
-                             (rtp_sn == 0 && rtp_sn_prev != 0xFFFF)) {
-                        if(snd_ts < snd_ts_prev) {
-                            // Reordering
-                            reorder = 1;
-                            reorder_count++;
-                            if(rtp_sn < rtp_sn_prev) {
-                                reorder_length = rtp_sn_prev - rtp_sn;
-                            }
-                            else {
-                                reorder_length = rtp_sn_prev - rtp_sn + 0x10000;
-                            }
-
-                            if(reorder_length_max < reorder_length) {
-                                reorder_length_max = reorder_length;
-                            }
-
-                            dbg_printf("[%s]:Reordering %d(%d,%d) snd_ts(%f, %f)\n", logtime, reorder_length, rtp_sn, rtp_sn_prev, snd_ts, snd_ts_prev);
-                            csvdump("Reordering", reorder_length, "Packets");
+                    else if(snd_ts < snd_ts_prev) {
+                        // Reordering
+                        reorder = 1;
+                        reorder_count++;
+                        if(rtp_sn < rtp_sn_prev) {
+                            reorder_length = rtp_sn_prev - rtp_sn;
                         }
                         else {
-                            // Packet Loss
-                            int loss_length;
-                            if(rtp_sn < rtp_sn_prev) {
-                                loss_length = rtp_sn - rtp_sn_prev + 0x10000 - 1;
-                            }
-                            else {
-                                loss_length = rtp_sn - rtp_sn_prev - 1;
-                            }
-                            loss += loss_length;
-
-                            if(loss_burst_max < loss_length){
-                                loss_burst_max = loss_length;
-                            }
-
-                            if(loss_length > 1) {
-                                dbg_printf("[%s]:Burst Packet Loss:%d(%d,%d) \n", logtime, loss_length, rtp_sn, rtp_sn_prev);
-                            }
-                            else {
-                                dbg_printf("[%s]:Packet Loss:%d(%d,%d) \n", logtime, loss_length, rtp_sn, rtp_sn_prev);
-                            }
-                            csvdump("Loss", loss_length, "Packets");
+                            reorder_length = rtp_sn_prev - rtp_sn + 0x10000;
                         }
+
+                        if(reorder_length_max < reorder_length) {
+                            reorder_length_max = reorder_length;
+                        }
+
+                        dbg_printf("[%s]:Reordering %d(%d,%d) snd_ts(%f, %f)\n", logtime, reorder_length, rtp_sn, rtp_sn_prev, snd_ts, snd_ts_prev);
+                        csvdump("Reordering", reorder_length, "Packets");
+                    }
+                    else if ((rtp_sn > 0 && rtp_sn - rtp_sn_prev != 1) ||
+                             (rtp_sn == 0 && rtp_sn_prev != 0xFFFF)) {
+                        // Packet Loss
+                        int loss_length;
+                        if(rtp_sn < rtp_sn_prev) {
+                            loss_length = rtp_sn - rtp_sn_prev + 0x10000 - 1;
+                        }
+                        else {
+                            loss_length = rtp_sn - rtp_sn_prev - 1;
+                        }
+                        loss += loss_length;
+
+                        if(loss_burst_max < loss_length){
+                            loss_burst_max = loss_length;
+                        }
+
+                        if(loss_length > 1) {
+                            dbg_printf("[%s]:Burst Packet Loss:%d(%d,%d) \n", logtime, loss_length, rtp_sn, rtp_sn_prev);
+                        }
+                        else {
+                            dbg_printf("[%s]:Packet Loss:%d(%d,%d) \n", logtime, loss_length, rtp_sn, rtp_sn_prev);
+                        }
+                        csvdump("Loss", loss_length, "Packets");
                     }
                     else {
                         // Jitter Calculation
-                        if(snd_ts < snd_ts_prev) {
-                            // FIXME ELL側アプリ修正が必要
-                            // 送信カウンタ読み出し時に秒繰り上がりを検知する必要あり
-                            // 暫定でPC側アプリで同等処理
-                            if((uint32_t)snd_ts_prev == (uint32_t)snd_ts) snd_ts = snd_ts + 1.0;
-                        }
-
+                        
                         // for DEBUG
                         if(rcv_ts < rcv_ts_prev) {
                             dbg_printf("(%d,%d)%ld:rcv:%f(%d,%d), %f\n", rtp_sn, rtp_sn_prev, packet_count, rcv_ts, rcv_sec, rcv_nsec, rcv_ts_prev);

@@ -37,6 +37,11 @@
 *.hex
 plot
 rtp_dump.bin
+rtp-log/
+rtp_dump_detail.csv
+rtp_dump_summary.csv
+rtp_plot.html
+
 
 # Debug files
 *.dSYM/

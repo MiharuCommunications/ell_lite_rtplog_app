@@ -81,7 +81,7 @@ fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(reorder_length.values
 
 fig.write_html("rtp_plot.html")
 
-port = 8050
-Timer(1, lambda: webbrowser.open_new(f"http://localhost:{port}")).start()
-fig.show_dash(mode="inline", port=port)
-print("Drawing Graph Completed")
+#port = 8050
+#Timer(1, lambda: webbrowser.open_new(f"http://localhost:{port}")).start()
+#fig.show_dash(mode="inline", port=port)
+#print("Drawing Graph Completed")
