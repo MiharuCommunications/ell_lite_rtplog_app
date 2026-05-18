@@ -22,7 +22,9 @@ duplicate = {}
 reorder_count = {}
 reorder_length = {}
 
-filename = "rtp_dump.bin"
+outdir = "outdata/"
+filename = outdir + "rtp_dump.bin"
+plotname = outdir + "rtp_plot.html"
 
 args = sys.argv
 if(1 == len(args)) :
@@ -91,7 +93,7 @@ fig.add_trace(go.Scattergl(x=list(pkt_time.values()), y=list(reorder_length.valu
 #fig.update_yaxes(title="Packets(pkt/sec)", row=2)
 #fig.update_xaxes(rangeslider_visible=True)
 
-fig.write_html("rtp_plot.html")
+fig.write_html(plotname)
 
 #port = 8050
 #Timer(1, lambda: webbrowser.open_new(f"http://localhost:{port}")).start()

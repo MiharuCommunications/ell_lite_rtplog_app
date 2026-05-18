@@ -5,6 +5,8 @@
 #include <time.h>
 #include <stdint.h>
 #include <math.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #ifndef TZ_LOCAL
     #define TZ_LOCAL "Asia/Tokyo"
@@ -24,7 +26,14 @@
 #define csvdump(category, val, unit) \
     fprintf(csv_fp, "%s.%d,%s,%d,%s,%d,%d,%.3f,%.3f\n", logtime, ms, category, val, unit, rtp_sn, rtp_sn_prev, snd_ts_diff_ms, rcv_ts_diff_ms)
 
+// Jitter-Dump-Thresthold
 const uint32_t jitter_csvdump_th = 10; // 10ms
+
+// Output-File-Names
+#define OUTDIR "outdata/"
+#define OUTBIN         OUTDIR "rtp_dump.bin"
+#define OUTCSV_DETAIL  OUTDIR "rtp_dump_detail.csv"
+#define OUTCSV_SUMMARY OUTDIR "rtp_dump_summary.csv"
 
 typedef struct __attribute__((__packed__)) {
     double dms;
@@ -107,21 +116,23 @@ int log_anlys(char *log_dir) {
         fprintf(stderr, "Invalid LogFileDirectory : %s\n", log_dir);
         return 1;
     }
+    
+   (void)mkdir(OUTDIR, 0755); /* ignore EEXIST(Directory is already exists) */
 
-    FILE *dump_fp = fopen("rtp_dump.bin", "wb");
+    FILE *dump_fp = fopen(OUTBIN, "wb");
     if (!dump_fp) {
         perror("fopen");
         return 1;
     }
 
-    FILE *csv_fp = fopen("rtp_dump_detail.csv", "w");
+    FILE *csv_fp = fopen(OUTCSV_DETAIL, "w");
     if (!csv_fp) {
         perror("fopen");
         return 1;
     }
     fprintf(csv_fp, FMT_CSV);
 
-    FILE *csv_fp_summary = fopen("rtp_dump_summary.csv", "w");
+    FILE *csv_fp_summary = fopen(OUTCSV_SUMMARY, "w");
     if (!csv_fp) {
         perror("fopen");
         return 1;

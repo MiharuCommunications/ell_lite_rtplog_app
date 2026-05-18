@@ -7,7 +7,6 @@
 *.obj
 *.elf
 build/
-dist/
 
 # Linker output
 *.ilk
@@ -43,7 +42,6 @@ rtp-log/
 rtp_dump_detail.csv
 rtp_dump_summary.csv
 rtp_plot.html
-ell-lite-rtplog_app
 ell-lite-rtplog_app.spec
 
 
