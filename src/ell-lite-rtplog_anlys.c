@@ -14,8 +14,6 @@
 #define FMT_LOGTIME "%Y/%m/%d %H:%M:%S"
 #define FMT_CSV "Time,Category,Value,Unit,SeqNum,SeqNumPrev,SendTimeStampDiff(ms),RecvTimeStampDiff(ms)\n"
 #define FMT_CSV_SUMMARY "Time,Category,Value,Unit\n"
-//#define FMT_CSV_SUMMARY "Time,JitterMoment(ms),JitterAverage(ms),PacketLoss(pkt/sec),Duplicate(pkt/sec),Reordering(pkt/sec),ReorderingLength(pkt)\n"
-//#define DEBUG
 
 #ifdef DEBUG
     #define dbg_printf(...) printf(__VA_ARGS__)
@@ -25,7 +23,26 @@
 
 #define csvdump(category, val, unit) \
     fprintf(csv_fp, "%s.%d,%s,%d,%s,%d,%d,%.3f,%.3f\n", logtime, ms, category, val, unit, rtp_sn, rtp_sn_prev, snd_ts_diff_ms, rcv_ts_diff_ms)
-    //fprintf(csv_fp, "%s,%s,%d,%s,%d,%d,%.3f,%.3f\n", logtime, category, val, unit, rtp_sn, rtp_sn_prev, snd_ts_diff_ms, rcv_ts_diff_ms)
+
+const uint32_t jitter_csvdump_th = 10; // 10ms
+
+typedef struct __attribute__((__packed__)) {
+    double dms;
+    double jms;
+} RTPStatJitterData;
+
+typedef struct __attribute__((__packed__)) {
+    int loss_psec;
+    int loss_burst;
+    int duplicate;
+    int reorder_count;
+    int reorder_length;
+} RTPStatLossData;
+
+typedef struct __attribute__((__packed__)) {
+    RTPStatJitterData jitter;
+    RTPStatLossData loss;
+} RTPStatData;
 
 typedef struct __attribute__((__packed__)) {
     int year;
@@ -34,13 +51,7 @@ typedef struct __attribute__((__packed__)) {
     int hour;
     int minute;
     int second;
-    double dms;
-    double jms;
-    int loss;
-    int loss_burst;
-    int duplicate;
-    int reorder_count;
-    int reorder_length;
+    RTPStatData data;
 } RTPStat;
 
 int scanExtract(const struct dirent*  dir)
@@ -60,9 +71,11 @@ struct tm parse_filename_to_tm(const char *filename) {
     return tm_info;
 }
 
-int main(int argc, char *argv[]) {
-    char *log_dir = (argc == 1) ? "rtp-log" : argv[1];
-    uint32_t plot_rate = (argc <= 2) ? 1 : atoi(argv[2]);
+//int main(int argc, char *argv[]) {
+int log_anlys(char *log_dir) {
+    //char *log_dir = (argc == 1) ? "rtp-log" : argv[1];
+    //uint32_t plot_rate = (argc <= 2) ? 1 : atoi(argv[2]);
+    uint32_t plot_rate = 1;
     DIR *dir;
     char logtime[100] = "0";
     struct dirent **entry;
@@ -79,9 +92,12 @@ int main(int argc, char *argv[]) {
     int reorder_length = 0;
     int reorder_length_max = 0;
     int duplicate = 0;
+    RTPStatJitterData prev_jitter;
+
+    memset(&prev_jitter, 0, sizeof(prev_jitter));
 
     if(plot_rate == 0 || plot_rate > 1000) {
-        fprintf(stderr, "Invalid DumpRate : %s (range 1 - 1000)\n", argv[2]);
+        fprintf(stderr, "Invalid DumpRate : %d (range 1 - 1000)\n", plot_rate);
         return 1;
     }
     plot_rate = 1000 / plot_rate;
@@ -125,10 +141,16 @@ int main(int argc, char *argv[]) {
 
             fseek(fp, 0, SEEK_END);
             long file_size = ftell(fp);
+            if(file_size == -1){
+                perror("ftell: invalid file_siz");
+                fclose(fp);
+                exit(1);
+            }
             fseek(fp, 0, SEEK_SET);
 
             uint8_t *data = malloc(file_size);
-            fread(data, 1, file_size, fp);
+            if(fread(data, 1, file_size, fp) != (size_t)file_size)
+               perror("fread"); 
             fclose(fp);
 
             uint32_t ofs = 0;
@@ -149,6 +171,7 @@ int main(int argc, char *argv[]) {
             strftime(logtime, sizeof(logtime), FMT_LOGTIME, tm_log);
 
             int ms = 0;
+            int sec = 0;
             char is_start = 0;
 
             while (ofs + DSIZE <= file_size) {
@@ -245,7 +268,7 @@ int main(int argc, char *argv[]) {
                         if (d > d_max) d_max = d;
                         if (j > j_max) j_max = j;
 
-                        if(d * 1000 > 100) {
+                        if(d * 1000 > jitter_csvdump_th) {
                             dbg_printf("[%s]:Jitter:%f ms SN(%d,%d), TS(%f, %f):\n", logtime, d * 1000, rtp_sn, rtp_sn_prev, snd_ts, snd_ts_prev);
                             csvdump("Jitter", (int)(d*1000), "ms");
                         }
@@ -255,45 +278,58 @@ int main(int argc, char *argv[]) {
                 // Dump plotdata_bin & summary_csv
                 if (packet_count % plot_rate == 0 && packet_count > 0) {
                     RTPStat stat;
+                    char is_write = 0;
                     stat.year = tm_log->tm_year + 1900;
                     stat.month = tm_log->tm_mon + 1;
                     stat.day = tm_log->tm_mday;
                     stat.hour = tm_log->tm_hour;
                     stat.minute = tm_log->tm_min;
                     stat.second = tm_log->tm_sec;
-                    stat.dms = d_max * 1e3;
-                    stat.jms = j_max * 1e3;
-                    stat.loss = loss;
-                    stat.loss_burst = loss_burst_max;
-                    stat.duplicate = duplicate;
-                    stat.reorder_count = reorder_count;
-                    stat.reorder_length = reorder_length_max;
+                    stat.data.jitter.dms = d_max * 1e3;
+                    stat.data.jitter.jms = j_max * 1e3;
+                    stat.data.loss.loss_psec = loss;
+                    stat.data.loss.loss_burst = loss_burst_max;
+                    stat.data.loss.duplicate = duplicate;
+                    stat.data.loss.reorder_count = reorder_count;
+                    stat.data.loss.reorder_length = reorder_length_max;
 
-                    fwrite(&stat, sizeof(RTPStat), 1, dump_fp);
-
-                    if(stat.dms > 100){
-                        fprintf(csv_fp_summary, "%s,Jitter,%.3f,ms\n", logtime, stat.dms);
+                    if( (fabs(stat.data.jitter.dms - prev_jitter.dms) > 1.0) || 
+                        (fabs(stat.data.jitter.jms - prev_jitter.jms) > 0.1) ) {
+                        is_write = 1;
+                        prev_jitter.dms = stat.data.jitter.dms;
+                        prev_jitter.jms = stat.data.jitter.jms;
                     }
 
-                    if(stat.loss > 0){
-                        fprintf(csv_fp_summary, "%s,Loss(total),%d,pkt/sec\n", logtime, stat.loss);
-                        fprintf(csv_fp_summary, "%s,Loss(burst),%d,pkt\n", logtime, stat.loss_burst);
+                    if(loss != 0 || duplicate != 0 || reorder_count != 0)
+                        is_write = 1;
+
+                    if(is_write == 1 || sec == 0) {
+                        fwrite(&stat, sizeof(RTPStat), 1, dump_fp);
                     }
 
-                    if(stat.duplicate){
-                        fprintf(csv_fp_summary, "%s,Duplicate,%d,pkt/sec\n", logtime, stat.duplicate);
+                    if(stat.data.jitter.dms > jitter_csvdump_th){
+                        fprintf(csv_fp_summary, "%s,Jitter,%.3f,ms\n", logtime, stat.data.jitter.dms);
                     }
 
-                    if(stat.reorder_count > 0){
-                        fprintf(csv_fp_summary, "%s,Reordering(count),%d,pkt/sec\n", logtime, stat.reorder_count);
-                        fprintf(csv_fp_summary, "%s,Reordering(length),%d,pkt/sec\n", logtime, stat.reorder_length);
+                    if(stat.data.loss.loss_psec > 0){
+                        fprintf(csv_fp_summary, "%s,Loss(total),%d,pkt/sec\n", logtime, stat.data.loss.loss_psec);
+                        fprintf(csv_fp_summary, "%s,Loss(burst),%d,pkt\n", logtime, stat.data.loss.loss_burst);
                     }
-                    //fprintf(csv_fp_summary, "%s,%.3f,%.3f,%d,%d,%d,%d\n", logtime, stat.dms, stat.jms, stat.loss, stat.duplicate, stat.reorder_count, stat.reorder_length);
 
-                    //if(stat.dms > 100)
-                    //    printf("[Jitter] %d ms (%d%02d%02d_%02d:%02d:%02d)\n", (int)stat.dms, stat.year, stat.month, stat.day, stat.hour, stat.minute, stat.second);
+                    if(stat.data.loss.duplicate){
+                        fprintf(csv_fp_summary, "%s,Duplicate,%d,pkt/sec\n", logtime, stat.data.loss.duplicate);
+                    }
 
-                    //if(stat.loss > 20)
+                    if(stat.data.loss.reorder_count > 0){
+                        fprintf(csv_fp_summary, "%s,Reordering(count),%d,pkt/sec\n", logtime, stat.data.loss.reorder_count);
+                        fprintf(csv_fp_summary, "%s,Reordering(length),%d,pkt/sec\n", logtime, stat.data.loss.reorder_length);
+                    }
+                    //fprintf(csv_fp_summary, "%s,%.3f,%.3f,%d,%d,%d,%d\n", logtime, stat.jitter.dms, stat.jitter.jms, stat.loss, stat.loss.duplicate, stat.loss.reorder_count, stat.loss.reorder_length);
+
+                    //if(stat.jitter.dms > jitter_csvdump_th)
+                    //    printf("[Jitter] %d ms (%d%02d%02d_%02d:%02d:%02d)\n", (int)stat.jitter.dms, stat.year, stat.month, stat.day, stat.hour, stat.minute, stat.second);
+
+                    //if(stat.loss.loss_psec > 20)
                     //    printf("[Loss] %d packets/sec (%d%02d%02d_%02d:%02d:%02d)\n", (int)stat.loss, stat.year, stat.month, stat.day, stat.hour, stat.minute, stat.second);
 
                     d_max = 0;
@@ -303,6 +339,7 @@ int main(int argc, char *argv[]) {
                     duplicate = 0;
                     reorder_count = 0;
                     reorder_length_max = 0;
+
                 }
 
                 d_prev = d;
@@ -314,6 +351,8 @@ int main(int argc, char *argv[]) {
 
                 if (ms >= 1000) {
                     ms = 0;
+                    if(sec++ == 60 * 1)
+                        sec = 0;
                     tm_log->tm_sec++;
                     mktime(tm_log); // 正規化（秒→分→時→日→月→年）
                     strftime(logtime, sizeof(logtime), FMT_LOGTIME, tm_log);
@@ -335,13 +374,6 @@ int main(int argc, char *argv[]) {
     fclose(csv_fp_summary);
     closedir(dir);
     printf("All Packets Proceeded\n");
-
-    // Pythonスクリプトをsystemで起動
-    printf("Launching Python Plot...\n");
-    int ret = system("python3 plot_rtp.py");
-    if (ret != 0) {
-        fprintf(stderr, "Python script failed with code %d\n", ret);
-    }
 
     return 0;
 }

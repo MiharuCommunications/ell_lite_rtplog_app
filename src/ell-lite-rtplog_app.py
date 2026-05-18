@@ -1,12 +1,14 @@
 ﻿import struct
 import datetime
+import ctypes
+import sys
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
-from plotly_resampler import register_plotly_resampler
+#from plotly_resampler import register_plotly_resampler
 import webbrowser
 from threading import Timer
 
-register_plotly_resampler(mode='auto')
+#register_plotly_resampler(mode='auto')
 
 record_format = "<6idd5i"  # packed: 6 ints, 2 doubles, 4 ints
 record_size = struct.calcsize(record_format)
@@ -21,6 +23,16 @@ reorder_count = {}
 reorder_length = {}
 
 filename = "rtp_dump.bin"
+
+args = sys.argv
+if(1 == len(args)) :
+    log_dir = b"rtp-log"
+else :
+    log_dir = args[1].encode('utf-8')
+
+# Generate rtp_dump.bin
+anlys = ctypes.CDLL("ell-lite-rtplog_anlys.so")
+anlys.log_anlys(ctypes.c_char_p(log_dir))
 
 with open(filename, "rb") as f:
     i_sec = 0
@@ -67,13 +79,13 @@ print("Drawing Graph")
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                     subplot_titles=["Jitter (ms)", "Loss/Duplicate/Reordering (pkt/sec)"], vertical_spacing=0.03)
 
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(dms.values()), name="Jitter(moment)", mode="lines"), row=1, col=1)
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(jms.values()), name="Jitter(average)", mode="lines"), row=1, col=1)
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(loss.values()), name="Loss(total)", mode="lines"), row=2, col=1)
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(loss_burst.values()), name="Loss(burst)", mode="lines"), row=2, col=1)
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(duplicate.values()), name="Duplicate", mode="lines"), row=2, col=1)
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(reorder_count.values()), name="Reordering(count)", mode="lines"), row=2, col=1)
-fig.add_trace(go.Scatter(x=list(pkt_time.values()), y=list(reorder_length.values()), name="Reordering(length)", mode="lines"), row=2, col=1)
+fig.add_trace(go.Scattergl(x=list(pkt_time.values()), y=list(dms.values()), name="Jitter(moment)", mode="lines+markers"), row=1, col=1)
+fig.add_trace(go.Scattergl(x=list(pkt_time.values()), y=list(jms.values()), name="Jitter(average)", mode="lines+markers"), row=1, col=1)
+fig.add_trace(go.Scattergl(x=list(pkt_time.values()), y=list(loss.values()), name="Loss(total)", mode="lines+markers"), row=2, col=1)
+fig.add_trace(go.Scattergl(x=list(pkt_time.values()), y=list(loss_burst.values()), name="Loss(burst)", mode="lines+markers"), row=2, col=1)
+fig.add_trace(go.Scattergl(x=list(pkt_time.values()), y=list(duplicate.values()), name="Duplicate", mode="lines+markers"), row=2, col=1)
+fig.add_trace(go.Scattergl(x=list(pkt_time.values()), y=list(reorder_count.values()), name="Reordering(count)", mode="lines+markers"), row=2, col=1)
+fig.add_trace(go.Scattergl(x=list(pkt_time.values()), y=list(reorder_length.values()), name="Reordering(length)", mode="lines+markers"), row=2, col=1)
 
 #fig.update_yaxes(title="Jitter(ms)", row=1)
 #fig.update_yaxes(title="Packets(pkt/sec)", row=2)
@@ -83,5 +95,6 @@ fig.write_html("rtp_plot.html")
 
 #port = 8050
 #Timer(1, lambda: webbrowser.open_new(f"http://localhost:{port}")).start()
-#fig.show_dash(mode="inline", port=port)
-#print("Drawing Graph Completed")
+#fig.show_dash(mode="internal", port=port)
+print("Plotted %d samples" %(len(pkt_time)))
+print("Drawing Graph Completed")
