@@ -6,6 +6,7 @@
 *.ko
 *.obj
 *.elf
+build/
 
 # Linker output
 *.ilk
@@ -41,6 +42,7 @@ rtp-log/
 rtp_dump_detail.csv
 rtp_dump_summary.csv
 rtp_plot.html
+ell-lite-rtplog_app.spec
 
 
 # Debug files

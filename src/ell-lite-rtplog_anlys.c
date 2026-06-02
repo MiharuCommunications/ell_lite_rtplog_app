@@ -1,0 +1,390 @@
+﻿#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <time.h>
+#include <stdint.h>
+#include <math.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#ifndef TZ_LOCAL
+    #define TZ_LOCAL "Asia/Tokyo"
+#endif
+
+#define DSIZE 18
+#define FMT_LOGTIME "%Y/%m/%d %H:%M:%S"
+#define FMT_CSV "Time,Category,Value,Unit,SeqNum,SeqNumPrev,SendTimeStampDiff(ms),RecvTimeStampDiff(ms)\n"
+#define FMT_CSV_SUMMARY "Time,Category,Value,Unit\n"
+
+#ifdef DEBUG
+    #define dbg_printf(...) printf(__VA_ARGS__)
+#else
+    #define dbg_printf(...) do{} while(0)
+#endif
+
+#define csvdump(category, val, unit) \
+    fprintf(csv_fp, "%s.%d,%s,%d,%s,%d,%d,%.3f,%.3f\n", logtime, ms, category, val, unit, rtp_sn, rtp_sn_prev, snd_ts_diff_ms, rcv_ts_diff_ms)
+
+// Jitter-Dump-Thresthold
+const uint32_t jitter_csvdump_th = 10; // 10ms
+
+// Output-File-Names
+#define OUTDIR "outdata/"
+#define OUTBIN         OUTDIR "rtp_dump.bin"
+#define OUTCSV_DETAIL  OUTDIR "rtp_dump_detail.csv"
+#define OUTCSV_SUMMARY OUTDIR "rtp_dump_summary.csv"
+
+typedef struct __attribute__((__packed__)) {
+    double dms;
+    double jms;
+} RTPStatJitterData;
+
+typedef struct __attribute__((__packed__)) {
+    int loss_psec;
+    int loss_burst;
+    int duplicate;
+    int reorder_count;
+    int reorder_length;
+} RTPStatLossData;
+
+typedef struct __attribute__((__packed__)) {
+    RTPStatJitterData jitter;
+    RTPStatLossData loss;
+} RTPStatData;
+
+typedef struct __attribute__((__packed__)) {
+    int year;
+    int month;
+    int day;
+    int hour;
+    int minute;
+    int second;
+    RTPStatData data;
+} RTPStat;
+
+int scanExtract(const struct dirent*  dir)
+{
+    return (dir->d_name[0] != '.');
+} 
+
+// ファイル名から struct tm を取得 (UTC)
+struct tm parse_filename_to_tm(const char *filename) {
+    struct tm tm_info = {0};
+    sscanf(filename, "%4d%2d%2d_%2d%2d",
+           &tm_info.tm_year, &tm_info.tm_mon, &tm_info.tm_mday,
+           &tm_info.tm_hour, &tm_info.tm_min);
+    tm_info.tm_year -= 1900;
+    tm_info.tm_mon -= 1;
+    tm_info.tm_sec = 0;
+    return tm_info;
+}
+
+//int main(int argc, char *argv[]) {
+int log_anlys(char *log_dir) {
+    //char *log_dir = (argc == 1) ? "rtp-log" : argv[1];
+    //uint32_t plot_rate = (argc <= 2) ? 1 : atoi(argv[2]);
+    uint32_t plot_rate = 1;
+    DIR *dir;
+    char logtime[100] = "0";
+    struct dirent **entry;
+    uint64_t packet_count = 0;
+    uint16_t rtp_sn_prev = 0, rtp_sn = 0;
+    double snd_ts_prev = 0, snd_ts = 0, snd_ts_diff = 0, snd_ts_diff_ms = 0;
+    double rcv_ts_prev = 0, rcv_ts = 0, rcv_ts_diff = 0, rcv_ts_diff_ms = 0;
+    double d = 0, j = 0, d_prev = 0, j_prev = 0;
+    double d_max = 0, j_max = 0;
+    int loss = 0;
+    int loss_burst_max = 0;
+    int reorder = 0;
+    int reorder_count = 0;
+    int reorder_length = 0;
+    int reorder_length_max = 0;
+    int duplicate = 0;
+    RTPStatJitterData prev_jitter;
+
+    memset(&prev_jitter, 0, sizeof(prev_jitter));
+
+    if(plot_rate == 0 || plot_rate > 1000) {
+        fprintf(stderr, "Invalid DumpRate : %d (range 1 - 1000)\n", plot_rate);
+        return 1;
+    }
+    plot_rate = 1000 / plot_rate;
+
+    dir = opendir(log_dir);
+    if (!dir) {
+        fprintf(stderr, "Invalid LogFileDirectory : %s\n", log_dir);
+        return 1;
+    }
+    
+   (void)mkdir(OUTDIR, 0755); /* ignore EEXIST(Directory is already exists) */
+
+    FILE *dump_fp = fopen(OUTBIN, "wb");
+    if (!dump_fp) {
+        perror("fopen");
+        return 1;
+    }
+
+    FILE *csv_fp = fopen(OUTCSV_DETAIL, "w");
+    if (!csv_fp) {
+        perror("fopen");
+        return 1;
+    }
+    fprintf(csv_fp, FMT_CSV);
+
+    FILE *csv_fp_summary = fopen(OUTCSV_SUMMARY, "w");
+    if (!csv_fp) {
+        perror("fopen");
+        return 1;
+    }
+    fprintf(csv_fp_summary, FMT_CSV_SUMMARY);
+
+    int file_count = scandir(log_dir, &entry, scanExtract, alphasort);
+
+    for (int i = 0; i < file_count; i++) {
+        if (strstr(entry[i]->d_name, ".bin")) {
+            char filepath[512];
+            snprintf(filepath, sizeof(filepath), "%s/%s", log_dir, entry[i]->d_name);
+            //printf("Processing %s\n", filepath);
+
+            FILE *fp = fopen(filepath, "rb");
+            if (!fp) continue;
+
+            fseek(fp, 0, SEEK_END);
+            long file_size = ftell(fp);
+            if(file_size == -1){
+                perror("ftell: invalid file_siz");
+                fclose(fp);
+                exit(1);
+            }
+            fseek(fp, 0, SEEK_SET);
+
+            uint8_t *data = malloc(file_size);
+            if(fread(data, 1, file_size, fp) != (size_t)file_size)
+               perror("fread"); 
+            fclose(fp);
+
+            uint32_t ofs = 0;
+            char base_name[256];
+            strncpy(base_name, entry[i]->d_name, sizeof(base_name));
+            base_name[strlen(base_name) - 4] = '\0'; // ".bin"削除
+            struct tm tm_info = parse_filename_to_tm(base_name);
+
+            // mktimeでUTCのtime_tを取得
+            setenv("TZ", "UTC", 1);
+            tzset();
+            time_t time_utc = mktime(&tm_info);                              
+
+            // PCのタイムゾーンに変換
+            setenv("TZ", TZ_LOCAL, 1);
+            tzset();
+            struct tm *tm_log = localtime(&time_utc);
+            strftime(logtime, sizeof(logtime), FMT_LOGTIME, tm_log);
+
+            int ms = 0;
+            int sec = 0;
+            char is_start = 0;
+
+            while (ofs + DSIZE <= file_size) {
+                if(reorder == 0) {
+                    rtp_sn_prev = rtp_sn;
+                    snd_ts_prev = snd_ts;
+                    rcv_ts_prev = rcv_ts;
+                }
+                reorder = 0;
+                memcpy(&rtp_sn, data + ofs, 2);
+
+                uint32_t snd_sec, snd_nsec, rcv_sec, rcv_nsec;
+                memcpy(&snd_sec, data + ofs + 2, 4);
+                memcpy(&snd_nsec, data + ofs + 6, 4);
+                memcpy(&rcv_sec, data + ofs + 10, 4);
+                memcpy(&rcv_nsec, data + ofs + 14, 4);
+
+                snd_ts = snd_sec + snd_nsec * 1e-9;
+                rcv_ts = rcv_sec + rcv_nsec * 1e-9;
+
+                snd_ts_diff = snd_ts - snd_ts_prev;
+                rcv_ts_diff = rcv_ts - rcv_ts_prev;
+                snd_ts_diff_ms = snd_ts_diff * 1000;
+                rcv_ts_diff_ms = rcv_ts_diff * 1000;
+
+                ofs += DSIZE;
+
+                if (packet_count > 1) {
+                    if (rtp_sn == rtp_sn_prev) {
+                        // Duplicate Packet
+                        duplicate++;
+                        dbg_printf("[%s]:Duplicate (%d,%d) snd_ts(%f, %f)\n", logtime, rtp_sn, rtp_sn_prev, snd_ts, snd_ts_prev);
+                        csvdump("Duplicate", 1, "Packets");
+                    }
+                    else if(snd_ts < snd_ts_prev) {
+                        // Reordering
+                        reorder = 1;
+                        reorder_count++;
+                        if(rtp_sn < rtp_sn_prev) {
+                            reorder_length = rtp_sn_prev - rtp_sn;
+                        }
+                        else {
+                            reorder_length = rtp_sn_prev - rtp_sn + 0x10000;
+                        }
+
+                        if(reorder_length_max < reorder_length) {
+                            reorder_length_max = reorder_length;
+                        }
+
+                        dbg_printf("[%s]:Reordering %d(%d,%d) snd_ts(%f, %f)\n", logtime, reorder_length, rtp_sn, rtp_sn_prev, snd_ts, snd_ts_prev);
+                        csvdump("Reordering", reorder_length, "Packets");
+                    }
+                    else if ((rtp_sn > 0 && rtp_sn - rtp_sn_prev != 1) ||
+                             (rtp_sn == 0 && rtp_sn_prev != 0xFFFF)) {
+                        // Packet Loss
+                        int loss_length;
+                        if(rtp_sn < rtp_sn_prev) {
+                            loss_length = rtp_sn - rtp_sn_prev + 0x10000 - 1;
+                        }
+                        else {
+                            loss_length = rtp_sn - rtp_sn_prev - 1;
+                        }
+                        loss += loss_length;
+
+                        if(loss_burst_max < loss_length){
+                            loss_burst_max = loss_length;
+                        }
+
+                        if(loss_length > 1) {
+                            dbg_printf("[%s]:Burst Packet Loss:%d(%d,%d) \n", logtime, loss_length, rtp_sn, rtp_sn_prev);
+                        }
+                        else {
+                            dbg_printf("[%s]:Packet Loss:%d(%d,%d) \n", logtime, loss_length, rtp_sn, rtp_sn_prev);
+                        }
+                        csvdump("Loss", loss_length, "Packets");
+                    }
+                    else {
+                        // Jitter Calculation
+                        
+                        // for DEBUG
+                        if(rcv_ts < rcv_ts_prev) {
+                            dbg_printf("(%d,%d)%ld:rcv:%f(%d,%d), %f\n", rtp_sn, rtp_sn_prev, packet_count, rcv_ts, rcv_sec, rcv_nsec, rcv_ts_prev);
+                        }
+                        if(snd_ts < snd_ts_prev) {
+                            dbg_printf("(%d,%d)%ld:snd:%f(%d,%d), %f\n", rtp_sn, rtp_sn_prev, packet_count, snd_ts, snd_sec, snd_nsec, snd_ts_prev);
+                        }
+
+                        //rcv_ts_diff = (rcv_ts < rcv_ts_prev) ? (pow(2,32) + rcv_ts) - rcv_ts_prev : rcv_ts - rcv_ts_prev;
+                        //snd_ts_diff = (snd_ts < snd_ts_prev) ? (pow(2,32) + snd_ts) - snd_ts_prev : snd_ts - snd_ts_prev;
+                        rcv_ts_diff = rcv_ts - rcv_ts_prev;
+                        snd_ts_diff = snd_ts - snd_ts_prev;
+                        d = fabs(rcv_ts_diff - snd_ts_diff);
+                        j = j_prev + (d_prev - j_prev) / 16;
+                        if (d > d_max) d_max = d;
+                        if (j > j_max) j_max = j;
+
+                        if(d * 1000 > jitter_csvdump_th) {
+                            dbg_printf("[%s]:Jitter:%f ms SN(%d,%d), TS(%f, %f):\n", logtime, d * 1000, rtp_sn, rtp_sn_prev, snd_ts, snd_ts_prev);
+                            csvdump("Jitter", (int)(d*1000), "ms");
+                        }
+                    }
+                }
+
+                // Dump plotdata_bin & summary_csv
+                if (packet_count % plot_rate == 0 && packet_count > 0) {
+                    RTPStat stat;
+                    char is_write = 0;
+                    stat.year = tm_log->tm_year + 1900;
+                    stat.month = tm_log->tm_mon + 1;
+                    stat.day = tm_log->tm_mday;
+                    stat.hour = tm_log->tm_hour;
+                    stat.minute = tm_log->tm_min;
+                    stat.second = tm_log->tm_sec;
+                    stat.data.jitter.dms = d_max * 1e3;
+                    stat.data.jitter.jms = j_max * 1e3;
+                    stat.data.loss.loss_psec = loss;
+                    stat.data.loss.loss_burst = loss_burst_max;
+                    stat.data.loss.duplicate = duplicate;
+                    stat.data.loss.reorder_count = reorder_count;
+                    stat.data.loss.reorder_length = reorder_length_max;
+
+                    if( (fabs(stat.data.jitter.dms - prev_jitter.dms) > 1.0) || 
+                        (fabs(stat.data.jitter.jms - prev_jitter.jms) > 0.1) ) {
+                        is_write = 1;
+                        prev_jitter.dms = stat.data.jitter.dms;
+                        prev_jitter.jms = stat.data.jitter.jms;
+                    }
+
+                    if(loss != 0 || duplicate != 0 || reorder_count != 0)
+                        is_write = 1;
+
+                    if(is_write == 1 || sec == 0) {
+                        fwrite(&stat, sizeof(RTPStat), 1, dump_fp);
+                    }
+
+                    if(stat.data.jitter.dms > jitter_csvdump_th){
+                        fprintf(csv_fp_summary, "%s,Jitter,%.3f,ms\n", logtime, stat.data.jitter.dms);
+                    }
+
+                    if(stat.data.loss.loss_psec > 0){
+                        fprintf(csv_fp_summary, "%s,Loss(total),%d,pkt/sec\n", logtime, stat.data.loss.loss_psec);
+                        fprintf(csv_fp_summary, "%s,Loss(burst),%d,pkt\n", logtime, stat.data.loss.loss_burst);
+                    }
+
+                    if(stat.data.loss.duplicate){
+                        fprintf(csv_fp_summary, "%s,Duplicate,%d,pkt/sec\n", logtime, stat.data.loss.duplicate);
+                    }
+
+                    if(stat.data.loss.reorder_count > 0){
+                        fprintf(csv_fp_summary, "%s,Reordering(count),%d,pkt/sec\n", logtime, stat.data.loss.reorder_count);
+                        fprintf(csv_fp_summary, "%s,Reordering(length),%d,pkt/sec\n", logtime, stat.data.loss.reorder_length);
+                    }
+                    //fprintf(csv_fp_summary, "%s,%.3f,%.3f,%d,%d,%d,%d\n", logtime, stat.jitter.dms, stat.jitter.jms, stat.loss, stat.loss.duplicate, stat.loss.reorder_count, stat.loss.reorder_length);
+
+                    //if(stat.jitter.dms > jitter_csvdump_th)
+                    //    printf("[Jitter] %d ms (%d%02d%02d_%02d:%02d:%02d)\n", (int)stat.jitter.dms, stat.year, stat.month, stat.day, stat.hour, stat.minute, stat.second);
+
+                    //if(stat.loss.loss_psec > 20)
+                    //    printf("[Loss] %d packets/sec (%d%02d%02d_%02d:%02d:%02d)\n", (int)stat.loss, stat.year, stat.month, stat.day, stat.hour, stat.minute, stat.second);
+
+                    d_max = 0;
+                    j_max = 0;
+                    loss = 0;
+                    loss_burst_max = 0;
+                    duplicate = 0;
+                    reorder_count = 0;
+                    reorder_length_max = 0;
+
+                }
+
+                d_prev = d;
+                j_prev = j;
+
+                // 1ms加算
+                if ( is_start )
+                    ms++;
+
+                if (ms >= 1000) {
+                    ms = 0;
+                    if(sec++ == 60 * 1)
+                        sec = 0;
+                    tm_log->tm_sec++;
+                    mktime(tm_log); // 正規化（秒→分→時→日→月→年）
+                    strftime(logtime, sizeof(logtime), FMT_LOGTIME, tm_log);
+                }
+
+                packet_count++;
+                is_start = 1;
+            }
+
+            free(data);
+        }
+        free(entry[i]);
+        //printf("%ld Packets Proceeded\n", packet_count);
+    }
+    free(entry);
+
+    fclose(dump_fp);
+    fclose(csv_fp);
+    fclose(csv_fp_summary);
+    closedir(dir);
+    printf("All Packets Proceeded\n");
+
+    return 0;
+}
