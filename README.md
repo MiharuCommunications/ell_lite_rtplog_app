@@ -1,9 +1,9 @@
 # ell_lite_rtplog_app
-ELL LiteのRTPジッターログ解析アプリ（PC用）
+ELL Liteの回線品質測定ログ解析アプリ（PC用）
 
 ## 概要
 
-ELL Liteで取得したRTPジッターログの解析を行い、ブラウザ上で解析結果（グラフ）を  
+ELL Liteの回線品質測定機能で取得したログデータの解析を行い、ブラウザ上で解析結果（グラフ）を  
 確認するためのアプリケーションです。
 
 ## 動作環境
@@ -34,7 +34,7 @@ ELL Liteで取得したRTPジッターログの解析を行い、ブラウザ上
    cd ell_lite_rtplog_app-vX.X.X
    ```
 
-2. ELL Liteで取得したRTPジッターログファイルを、展開したディレクトリに `rtp-log` という  
+2. ELL Liteで取得したログファイルを、展開したディレクトリに `rtp-log` という  
 ディレクトリ名でコピーします。
    ```bash
    cp -r /path/to/rtp-log ./rtp-log
