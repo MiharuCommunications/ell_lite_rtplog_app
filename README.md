@@ -3,7 +3,8 @@ ELL LiteのRTPジッターログ解析アプリ（PC用）
 
 ## 概要
 
-ELL Liteで取得したRTPジッターログの解析を行い、ブラウザ上で解析結果（グラフ）を確認するためのアプリケーションです。
+ELL Liteで取得したRTPジッターログの解析を行い、ブラウザ上で解析結果（グラフ）を  
+確認するためのアプリケーションです。
 
 ## 動作環境
 
@@ -16,7 +17,8 @@ ELL Liteで取得したRTPジッターログの解析を行い、ブラウザ上
 
 ## ダウンロード方法
 
-1. リポジトリの [Releases](https://github.com/MiharuCommunications/ell_lite_rtplog_app/releases) タブから、最新のアーカイブファイル（zip または tar.gz）をダウンロードしてください。
+1. リポジトリの [Releases](https://github.com/MiharuCommunications/ell_lite_rtplog_app/releases) タブから、  
+最新のアーカイブファイル（zip または tar.gz）をダウンロードしてください。
 2. ダウンロードしたファイルをローカルディレクトリに保存します。
 
 ## 実行方法
@@ -32,7 +34,8 @@ ELL Liteで取得したRTPジッターログの解析を行い、ブラウザ上
    cd ell_lite_rtplog_app-vX.X.X
    ```
 
-2. ELL Liteで取得したRTPジッターログファイルを、展開したディレクトリに `rtp-log` というディレクトリ名でコピーします。
+2. ELL Liteで取得したRTPジッターログファイルを、展開したディレクトリに `rtp-log` という  
+ディレクトリ名でコピーします。
    ```bash
    cp -r /path/to/rtp-log ./rtp-log
    ```
@@ -42,7 +45,8 @@ ELL Liteで取得したRTPジッターログの解析を行い、ブラウザ上
    bin/ell-lite-rtplog_app rtp-log/
    ```
 
-4. 解析が完了すると、`outdata/rtp_plot.html` に結果が生成されます。以下の方法でブラウザに表示します。
+4. 解析が完了すると、`outdata/rtp_plot.html` に結果が生成されます。  
+以下の方法でブラウザに表示します。
    - **コマンドラインから表示**:
      ```bash
      browse outdata/rtp_plot.html
