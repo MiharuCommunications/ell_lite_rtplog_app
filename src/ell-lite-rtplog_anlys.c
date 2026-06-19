@@ -210,7 +210,7 @@ int log_anlys(char *log_dir) {
 
                 ofs += DSIZE;
 
-                if (packet_count > 1) {
+                if (packet_count > 1000) {
                     if (rtp_sn == rtp_sn_prev) {
                         // Duplicate Packet
                         duplicate++;
@@ -287,7 +287,7 @@ int log_anlys(char *log_dir) {
                 }
 
                 // Dump plotdata_bin & summary_csv
-                if (packet_count % plot_rate == 0 && packet_count > 0) {
+                if (ms % plot_rate == 0 && packet_count > 1000) {
                     RTPStat stat;
                     char is_write = 0;
                     stat.year = tm_log->tm_year + 1900;
@@ -362,7 +362,7 @@ int log_anlys(char *log_dir) {
 
                 if (ms >= 1000) {
                     ms = 0;
-                    if(sec++ == 60 * 1)
+                    if(++sec == 60 * 1)
                         sec = 0;
                     tm_log->tm_sec++;
                     mktime(tm_log); // 正規化（秒→分→時→日→月→年）
