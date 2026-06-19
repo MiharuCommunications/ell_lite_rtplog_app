@@ -51,7 +51,7 @@ ELL Liteの回線品質測定機能で取得したログデータの解析を行
      ```bash
      browse outdata/rtp_plot.html
      ```
-    > [!NOTE]
-    > `outdata/rtp_plot.html` ファイルをダブルクリックすることでもブラウザで表示できます。
+  > [!NOTE]
+  > `outdata/rtp_plot.html` ファイルをダブルクリックすることでもブラウザで表示できます。
 
 
